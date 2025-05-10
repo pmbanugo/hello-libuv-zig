@@ -1,46 +1,46 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const uv = @cImport({
+    @cInclude("uv.h");
+});
+
+const TimerContext = struct {
+    timer: *uv.uv_timer_t,
+    loop: *uv.uv_loop_t,
+    count: u8,
+};
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
+    // Setup libuv loop and timer
+    const loop = uv.uv_default_loop();
+    var timer: uv.uv_timer_t = undefined;
+    var ctx = TimerContext{
+        .timer = &timer,
+        .loop = loop,
+        .count = 0,
     };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+    timer.data = &ctx;
+    const rc = uv.uv_timer_init(loop, &timer);
+    if (rc != 0) {
+        std.debug.print("Failed to init timer: {d}\n", .{rc});
+        return;
+    }
+    const start_rc = uv.uv_timer_start(&timer, timer_cb, 0, 2000);
+    if (start_rc != 0) {
+        std.debug.print("Failed to start timer: {d}\n", .{start_rc});
+        return;
+    }
+    _ = uv.uv_run(loop, uv.UV_RUN_DEFAULT);
 }
 
-const std = @import("std");
+fn timer_cb(handle: [*c]uv.uv_timer_t) callconv(.C) void {
+    var ctx: *TimerContext = @alignCast(@ptrCast(handle.?.*.data));
+    ctx.count += 1;
+    // print the count
+    std.debug.print("Timer callback called {d} times.\n", .{ctx.count});
 
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("hello_libuv_lib");
+    if (ctx.count >= 3) {
+        _ = uv.uv_timer_stop(handle);
+        uv.uv_close(@ptrCast(handle), null);
+        std.debug.print("Timer closed after 3 executions.\n", .{});
+    }
+}

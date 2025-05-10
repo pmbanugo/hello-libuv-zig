@@ -65,6 +65,13 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    //Add the libuv library to the build
+    const libuv_dep = b.dependency("libuv", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.linkLibrary(libuv_dep.artifact("uv"));
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
